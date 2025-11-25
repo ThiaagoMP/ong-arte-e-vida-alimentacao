@@ -6,23 +6,44 @@ from database import db_functions as db
 
 
 class StockViewerWindow:
-    def __init__(self):
+    def __init__(self, parent_window):
+        self.parent_window = parent_window
         self.window = tk.Toplevel()
         self.window.title("Visualizar e Editar Estoque")
-        self.window.geometry("1920x1080")
-        self.window.configure(bg="#F5F5F5")
-        self.window.resizable(False, False)
 
-        # Estilo
+        self.window.protocol("WM_DELETE_WINDOW", self.go_back)
+
+        try:
+            self.window.state('zoomed')
+        except tk.TclError:
+            screen_width = self.window.winfo_screenwidth()
+            screen_height = self.window.winfo_screenheight()
+            self.window.geometry(f'{screen_width}x{screen_height}+0+0')
+
+        self.window.configure(bg="#F5F5F5")
+        self.window.resizable(True, True)
+
         font_title = ("Helvetica", 16, "bold")
         font_label = ("Helvetica", 12)
         font_button = ("Helvetica", 12, "bold")
 
-        # Frame principal
         main_frame = tk.Frame(self.window, bg="#F5F5F5", padx=20, pady=20)
         main_frame.pack(fill="both", expand=True)
 
-        # Título
+        back_button_frame = tk.Frame(main_frame, bg="#F5F5F5")
+        back_button_frame.pack(fill="x")
+
+        tk.Button(
+            back_button_frame,
+            text="← Voltar",
+            command=self.go_back,
+            bg="#800080",
+            fg="#FFFFFF",
+            font=font_button,
+            activebackground="#FFA500",
+            width=10
+        ).pack(side="left", anchor="nw")
+
         tk.Label(
             main_frame,
             text="Estoque de Alimentos",
@@ -31,13 +52,21 @@ class StockViewerWindow:
             bg="#F5F5F5"
         ).pack(pady=20)
 
-        # Lista de estoque
+        tree_frame = tk.Frame(main_frame)
+        tree_frame.pack(pady=10, fill="both", expand=True)
+
         self.stock_list = ttk.Treeview(
-            main_frame,
-            columns=("ID", "Alimento", "Marca", "Quantidade", "Unidade", "Validade", "Entrada", "Saída", "Saiu"),
-            show="headings",
-            height=15
+            tree_frame,
+            columns=("ID", "Alimento", "Marca", "Quantidade", "Unidade", "Validade", "Entrada", "Última Saída", "Saiu"),
+            show="headings"
         )
+
+        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.stock_list.yview)
+        self.stock_list.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side="right", fill="y")
+        self.stock_list.pack(side="left", fill="both", expand=True)
+
         self.stock_list.heading("ID", text="ID")
         self.stock_list.heading("Alimento", text="Alimento")
         self.stock_list.heading("Marca", text="Marca")
@@ -45,21 +74,20 @@ class StockViewerWindow:
         self.stock_list.heading("Unidade", text="Unidade")
         self.stock_list.heading("Validade", text="Validade")
         self.stock_list.heading("Entrada", text="Entrada")
-        self.stock_list.heading("Saída", text="Saída")
+        self.stock_list.heading("Última Saída", text="Última Saída")
         self.stock_list.heading("Saiu", text="Saiu")
         self.stock_list.column("ID", width=50, anchor="center")
         self.stock_list.column("Alimento", width=150, anchor="w")
         self.stock_list.column("Marca", width=100, anchor="w")
         self.stock_list.column("Quantidade", width=80, anchor="center")
-        self.stock_list.column("Unidade", width=60, anchor="center")
+        self.stock_list.column("Unidade", width=70, anchor="center")
         self.stock_list.column("Validade", width=100, anchor="center")
         self.stock_list.column("Entrada", width=100, anchor="center")
-        self.stock_list.column("Saída", width=100, anchor="center")
+        self.stock_list.column("Última Saída", width=100, anchor="center")
         self.stock_list.column("Saiu", width=50, anchor="center")
-        self.stock_list.pack(pady=10, fill="x")
+
         self.load_stock()
 
-        # Botões
         button_frame = tk.Frame(main_frame, bg="#F5F5F5")
         button_frame.pack(pady=20)
         tk.Button(
@@ -93,17 +121,24 @@ class StockViewerWindow:
             width=15
         ).pack(side="left", padx=10)
 
+    def go_back(self):
+        """Fecha a janela atual e reexibe a Dashboard (janela pai)."""
+        self.window.destroy()
+        self.parent_window.deiconify()
+
     def load_stock(self):
         for i in self.stock_list.get_children():
             self.stock_list.delete(i)
         stock = db.get_all_stock()
         for item in stock:
-            # Converter datas para DD/MM/YYYY, se existirem
             validade = datetime.strptime(item[5], '%Y-%m-%d').strftime('%d/%m/%Y') if item[5] else "-"
-            entrada = datetime.strptime(item[6], '%d/%m/%Y').strftime('%d/%m/%Y') if item[6] else "-"
+            entrada = item[6] if item[6] else "-"
             saida = datetime.strptime(item[7], '%Y-%m-%d').strftime('%d/%m/%Y') if item[7] else "-"
             saiu = "Sim" if item[8] else "Não"
-            self.stock_list.insert("", "end", values=(item[0], item[1], item[2], item[3], item[4], validade, entrada, saida, saiu))
+            if item[8]:
+                continue
+            self.stock_list.insert("", "end",
+                                   values=(item[0], item[1], item[2], item[3], item[4], validade, entrada, saida, saiu))
             if item[5] and datetime.strptime(item[5], '%Y-%m-%d') < datetime.now() + timedelta(days=7) and not item[8]:
                 self.stock_list.item(self.stock_list.get_children()[-1], tags=('red',))
         self.stock_list.tag_configure('red', foreground='red')
@@ -116,35 +151,45 @@ class StockViewerWindow:
             if item:
                 edit_window = tk.Toplevel()
                 edit_window.title("Editar Unidade de Estoque")
-                edit_window.geometry("1920x1080")
+
+                edit_window.geometry("500x350")
+
                 edit_window.configure(bg="#F5F5F5")
                 edit_frame = tk.Frame(edit_window, bg="#F5F5F5", padx=20, pady=20)
                 edit_frame.pack(fill="both", expand=True)
 
-                tk.Label(edit_frame, text="Marca:", font=("Helvetica", 12), fg="#800080", bg="#F5F5F5").grid(row=0, column=0, sticky="e", padx=5, pady=5)
+                tk.Label(edit_frame, text="Marca:", font=("Helvetica", 12), fg="#800080", bg="#F5F5F5").grid(row=0,
+                                                                                                             column=0,
+                                                                                                             sticky="e",
+                                                                                                             padx=5,
+                                                                                                             pady=5)
                 marca_entry = tk.Entry(edit_frame, font=("Helvetica", 12), width=20, bd=2, relief="groove")
                 marca_entry.insert(0, item[2])
                 marca_entry.grid(row=0, column=1, padx=5, pady=5)
 
-                tk.Label(edit_frame, text="Quantidade:", font=("Helvetica", 12), fg="#800080", bg="#F5F5F5").grid(row=1, column=0, sticky="e", padx=5, pady=5)
+                tk.Label(edit_frame, text="Quantidade:", font=("Helvetica", 12), fg="#800080", bg="#F5F5F5").grid(row=1,
+                                                                                                                  column=0,
+                                                                                                                  sticky="e",
+                                                                                                                  padx=5,
+                                                                                                                  pady=5)
                 valor_entry = tk.Entry(edit_frame, font=("Helvetica", 12), width=10, bd=2, relief="groove")
                 valor_entry.insert(0, str(item[3]))
                 valor_entry.grid(row=1, column=1, padx=5, pady=5)
 
-                tk.Label(edit_frame, text="Unidade:", font=("Helvetica", 12), fg="#800080", bg="#F5F5F5").grid(row=2, column=0, sticky="e", padx=5, pady=5)
+                tk.Label(edit_frame, text="Unidade:", font=("Helvetica", 12), fg="#800080", bg="#F5F5F5").grid(row=2,
+                                                                                                               column=0,
+                                                                                                               sticky="e",
+                                                                                                               padx=5,
+                                                                                                               pady=5)
                 unidade_entry = tk.Entry(edit_frame, font=("Helvetica", 12), width=10, bd=2, relief="groove")
                 unidade_entry.insert(0, item[4])
                 unidade_entry.grid(row=2, column=1, padx=5, pady=5)
 
-                tk.Label(edit_frame, text="Validade (DD/MM/YYYY):", font=("Helvetica", 12), fg="#800080", bg="#F5F5F5").grid(row=3, column=0, sticky="e", padx=5, pady=5)
+                tk.Label(edit_frame, text="Validade (DD/MM/YYYY):", font=("Helvetica", 12), fg="#800080",
+                         bg="#F5F5F5").grid(row=3, column=0, sticky="e", padx=5, pady=5)
                 validade_entry = DateEntry(
-                    edit_frame,
-                    font=("Helvetica", 12),
-                    width=15,
-                    date_pattern='dd/mm/yyyy',
-                    background="#800080",
-                    foreground="white",
-                    borderwidth=2
+                    edit_frame, font=("Helvetica", 12), width=15, date_pattern='dd/mm/yyyy',
+                    background="#800080", foreground="white", borderwidth=2
                 )
                 if item[5]:
                     validade_entry.set_date(datetime.strptime(item[5], '%Y-%m-%d'))
@@ -153,7 +198,7 @@ class StockViewerWindow:
                 def save():
                     try:
                         new_marca = marca_entry.get().strip()
-                        new_valor = int(valor_entry.get().strip())
+                        new_valor = float(valor_entry.get().strip())
                         new_unidade = unidade_entry.get().strip()[:5]
                         new_validade = validade_entry.get().strip()
                         new_validade_db = datetime.strptime(new_validade, '%d/%m/%Y').strftime('%Y-%m-%d')
@@ -162,16 +207,11 @@ class StockViewerWindow:
                         edit_window.destroy()
                         messagebox.showinfo("Sucesso", "Unidade atualizada")
                     except ValueError:
-                        messagebox.showerror("Erro", "Dados inválidos (quantidade inteira, data DD/MM/YYYY)")
+                        messagebox.showerror("Erro", "Dados inválidos (quantidade numérica, data DD/MM/YYYY)")
+
                 tk.Button(
-                    edit_frame,
-                    text="Salvar",
-                    command=save,
-                    bg="#FFA500",
-                    fg="#FFFFFF",
-                    font=("Helvetica", 12, "bold"),
-                    activebackground="#800080",
-                    width=15
+                    edit_frame, text="Salvar", command=save, bg="#FFA500", fg="#FFFFFF",
+                    font=("Helvetica", 12, "bold"), activebackground="#800080", width=15
                 ).grid(row=4, column=0, columnspan=2, pady=10, sticky="we")
 
     def delete_stock(self):
